@@ -24,8 +24,18 @@ class Slack:
         except:
             return {}
 
-    def __get_from_cache(self, email):
+    def __get_user_id_from_cache(self, email):
         return self.__get_all_from_cache().get('users', {}).get(email, None)
+
+    def __set_group_id_into_cache(self, group_name, group_id) :
+        slack_cache_data = self.__get_all_from_cache()
+        if 'usergroups' not in slack_cache_data:
+            slack_cache_data['usergroups'] = {}
+        print('---settingup---', slack_cache_data)
+        slack_cache_data['usergroups'][group_name] = group_id
+        print(slack_cache_data)
+        with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
+            json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
 
     def __set_slack_id_into_cache(self, email, slack_user_id):
         print('slack_user_id', slack_user_id)
@@ -37,9 +47,12 @@ class Slack:
         with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
             json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
 
+    def __get_group_id_from_cache(self, group_name):
+        return self.__get_all_from_cache().get('usergroups', {}).get(group_name, None)
+
 
     def get_user_slack_id_by_email(self, email):
-        slack_user_id = self.__get_from_cache(email)
+        slack_user_id = self.__get_user_id_from_cache(email)
         if slack_user_id:
             return slack_user_id
         print('cache miss for user id, calling slack api')
@@ -50,24 +63,42 @@ class Slack:
         self.__set_slack_id_into_cache(email, slack_user_id)
         return slack_user_id
 
+    def __filter_group_id_by_name(self, slack_api_data, group_name):
+        slack_group = list(filter(lambda x: x.get('name') == group_name, slack_api_data))
+        if not slack_group:
+            return None
+        else:
+            print('filter--->',slack_group)
+            return slack_group[0].get('id')
+
+    def __slack_group_id(self, group_name):
+        create_endpoint = self._slack_base_url + '/usergroups.create'
+        params = {'name': group_name}
+        response = requests.post(create_endpoint, headers=self._headers, json=params)
+        user_group_info = response.json()
+        print('usercreate group--->', user_group_info)
+        if(user_group_info.get('error', None) == 'name_already_exists'):
+            get_group_list_endpoint = self._slack_base_url + '/usergroups.list'
+            group_list_response = requests.get(get_group_list_endpoint, headers=self._headers)
+            usergroups_from_slack = group_list_response.json().get('usergroups')
+            group_id = self.__filter_group_id_by_name(usergroups_from_slack, group_name)
+            return group_id
+        else:
+            return user_group_info.get('usergroup').get('id')
+
     def create_update_slack_group(self, opsgenie_on_call_users):
-        endpoint = self._slack_base_url + '/usergroups.create'
         #no safe checking 
         opsgenie_team_name = opsgenie_on_call_users.get('_parent', {}).get('name')
         team_name = opsgenie_team_name.replace('_schedule', '').replace(' ', '-')
         group_name = 'oncall-{}'.format(team_name)
-        params = {'name': group_name}
-        print('params', params)
-
-        response = requests.post(endpoint, headers=self._headers, json=params)
-        user_group_info = response.json()
-        if(user_group_info.get('error', None) == 'name_already_exists'):
-            #modify_user_group
-            pass
+        usergroup_id = self.__get_group_id_from_cache(group_name)
+        if usergroup_id:
+            print('group id exists in cache', usergroup_id)
         else:
-            #add users to group
-            pass
-        print(response.json(), response)
+            usergroup_id = self.__slack_group_id(group_name)
+            self.__set_group_id_into_cache(group_name, usergroup_id)
+            print('usergroup_id->', usergroup_id)
+
 
 
 class Opsgenie:
@@ -92,7 +123,6 @@ class Opsgenie:
         return filter(lambda participant: participant['type'] == 'user', participants)
 
     def __get_oncall_users(self, on_call_participants):
-        print('__getoncallusers', on_call_participants)
         if self.__participant_user_exists(on_call_participants['onCallParticipants']):
             return on_call_participants
         else:
@@ -104,6 +134,7 @@ class Opsgenie:
             participant_users = self.__get_oncall_users(oncalls['data'])
             if self.__get_oncall_users(participant_users):
                 self.slack.create_update_slack_group(participant_users)
+                asdas
 
 
     def get_schedule_ids(self):
@@ -112,7 +143,7 @@ class Opsgenie:
 
 
 s = Slack()
-s.get_user_slack_id_by_email('rohit.khatana@qoala.id')
+#s.get_user_slack_id_by_email('rohit.khatana@qoala.id')
 #s.create_update_slack_group('')
-#o = Opsgenie()
-#print(o.get_oncalls())
+o = Opsgenie()
+print(o.get_oncalls())
