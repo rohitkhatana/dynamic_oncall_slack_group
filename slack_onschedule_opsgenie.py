@@ -90,9 +90,6 @@ class Slack:
         #no safe checking 
         opsgenie_team_name = opsgenie_on_call_users.get('_parent', {}).get('name')
         on_call_participants = opsgenie_on_call_users.get('onCallParticipants', [])
-        if not on_call_participants:
-            raise ValueError('no oncall participants')
-        user_email = on_call_participants[0]['name']
         team_name = opsgenie_team_name.replace('_schedule', '').replace(' ', '-')
         group_name = 'oncall-{}'.format(team_name)
         usergroup_id = self.__get_group_id_from_cache(group_name)
@@ -103,14 +100,17 @@ class Slack:
             usergroup_id = self.__slack_group_id(group_name)
             self.__set_group_id_into_cache(group_name, usergroup_id)
             print('usergroup_id->', usergroup_id)
-        self.__update_user_group(usergroup_id, user_email)
+        self.__update_user_group(usergroup_id, on_call_participants)
 
-    def __update_user_group(self, usergroup_id, user_email):
-        slack_user_id = self.get_user_slack_id_by_email(user_email)
+    def __update_user_group(self, usergroup_id, on_call_participants):
+        slack_user_ids = []
+        for participant in on_call_participants:
+            slack_user_id = self.get_user_slack_id_by_email(participant['name'])
+            slack_user_ids.append(slack_user_id)
         update_endpoint = self._slack_base_url + '/usergroups.users.update'
         params = {
             'usergroup': usergroup_id,
-            'users':[slack_user_id]
+            'users':slack_user_ids
         }
         response = requests.post(update_endpoint, headers=self._headers, json=params)
         update_response = response.json()
