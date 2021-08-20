@@ -64,7 +64,7 @@ class Slack:
         return slack_user_id
 
     def __filter_group_id_by_name(self, slack_api_data, group_name):
-        slack_group = list(filter(lambda x: x.get('name') == group_name, slack_api_data))
+        slack_group = list(filter(lambda x: x.get('name').lower() == group_name.lower(), slack_api_data))
         if not slack_group:
             return None
         else:
