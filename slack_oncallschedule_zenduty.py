@@ -1,11 +1,14 @@
 import requests, json
 
+# config = {"zenduty_key": "", "slack_auth_token": ""}
 config = {}
+
 with open('.env', 'r') as f:
     config = json.load(f)
-    required_keys = set(['opsgenie_key', 'slack_auth_token'])
+    required_keys = set(['zenduty_key', 'slack_auth_token'])
+
     if not set(config.keys()).issuperset(required_keys):
-        raise ValueError('opsgenie_key, slack_auth_token keys are required')
+        raise ValueError('zenduty_key, slack_auth_token keys are required')
 
 class Slack:
 
@@ -59,12 +62,13 @@ class Slack:
         endpoint = self._slack_base_url + '/users.lookupByEmail'
         params = {'email': email}
         response = requests.get(endpoint, headers=self._headers, params=params)
+        # print('response--->', response.json())
         slack_user_id = response.json().get('user').get('id')
         self.__set_slack_id_into_cache(email, slack_user_id)
         return slack_user_id
 
     def __filter_group_id_by_name(self, slack_api_data, group_name):
-        slack_group = list(filter(lambda x: x.get('name') == group_name, slack_api_data))
+        slack_group = list(filter(lambda x: x.get('name').lower() == group_name.lower(), slack_api_data))
         if not slack_group:
             return None
         else:
@@ -86,17 +90,19 @@ class Slack:
         else:
             return user_group_info.get('usergroup').get('id')
 
-    def create_update_slack_group(self, opsgenie_on_call_users):
+    def create_update_slack_group(self, zenduty_on_call_users):
         #no safe checking 
-        opsgenie_team_name = opsgenie_on_call_users.get('_parent', {}).get('name')
-        on_call_participants = opsgenie_on_call_users.get('onCallParticipants', [])
-        team_name = opsgenie_team_name.replace('_schedule', '').replace(' ', '-')
+        zenduty_team_name = zenduty_on_call_users.get('name')
+        on_call_participants = zenduty_on_call_users.get('onCallParticipants', [])
+        team_name = zenduty_team_name.replace(' schedule', '').replace(' ', '-')
         group_name = 'oncall-{}'.format(team_name)
+        print('group_name-->', group_name)
         usergroup_id = self.__get_group_id_from_cache(group_name)
         if usergroup_id:
             print('group id exists in cache', usergroup_id)
         else:
             print('creating new user group with name: {}'.format(group_name))
+            print(group_name)
             usergroup_id = self.__slack_group_id(group_name)
             self.__set_group_id_into_cache(group_name, usergroup_id)
             print('usergroup_id->', usergroup_id)
@@ -117,47 +123,45 @@ class Slack:
         return None
 
 
-class Opsgenie:
+class Zenduty:
 
     def __init__(self):
         #can be read from config
-        self._opsgenie_base_url = 'https://api.opsgenie.com/v2'
-        self._headers = {'Authorization': config.get('opsgenie_key')}
+        self._zenduty_base_url = 'https://www.zenduty.com/api/account'
+        self._headers = {'Authorization':"token {}".format(config.get('zenduty_key'))}
         self.slack = Slack()
 
-    def __oncall(self, schedule_id):
-        endpoint = self._opsgenie_base_url + '/schedules/{}/on-calls'.format(schedule_id)
+    def __oncall(self, team_id,schedule_id):
+        endpoint = self._zenduty_base_url + '/teams/{}/schedules/{}/get_on_call/'.format(team_id,schedule_id)
         response = requests.get(endpoint, headers=self._headers)
         return response.json()
 
     def __get_schedules(self):
-        endpoint = self._opsgenie_base_url + '/schedules'
-        response = requests.get(endpoint, headers=self._headers)
-        return response.json()
-
-    def __participant_user_exists(self, participants):
-        return filter(lambda participant: participant['type'] == 'user', participants)
-
-    def __get_oncall_users(self, on_call_participants):
-        if self.__participant_user_exists(on_call_participants['onCallParticipants']):
-            return on_call_participants
-        else:
-            None
+        teams = self._zenduty_base_url + '/teams'
+        response_teams = requests.get(teams, headers=self._headers)
+        response_teams_json = response_teams.json()
+        schedules = []
+        for team in response_teams_json:
+            endpoint = "{}/teams/{}/schedules".format(self._zenduty_base_url, team['unique_id'])
+            response = requests.get(endpoint, headers=self._headers)
+            schedules.extend(response.json())
+        return list(filter(lambda s: s.get('name') != 'Default', schedules))
 
     def get_oncalls(self):
-        for schedule_id in self.get_schedule_ids():
-            oncalls = self.__oncall(schedule_id)
-            participant_users = self.__get_oncall_users(oncalls['data'])
-            if self.__get_oncall_users(participant_users):
-                self.slack.create_update_slack_group(participant_users)
-
-    def get_schedule_ids(self):
-        return list(map(lambda schedule: schedule['id'], self.__get_schedules()['data']))
+        for schedule in self.__get_schedules():
+            if schedule.get('name') != 'Default':
+                oncalls = self.__oncall(schedule["team"],schedule["unique_id"])
+                participants = []
+                for i in oncalls:
+                    try:
+                        participants.append({"id":i["username"],"name":i["email"]})
+                    except:
+                        pass
+                schedule = {"name":schedule["name"],"onCallParticipants":participants}
+                self.slack.create_update_slack_group(schedule)
 
 
 
 s = Slack()
-#s.get_user_slack_id_by_email('rohit.khatana@qoala.id')
-#s.create_update_slack_group('')
-o = Opsgenie()
-print(o.get_oncalls())
+z = Zenduty()
+print(z.get_oncalls())
