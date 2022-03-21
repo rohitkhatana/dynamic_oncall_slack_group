@@ -1,20 +1,17 @@
-import requests, json
+import requests, json, os
 
-# config = {"zenduty_key": "", "slack_auth_token": ""}
-config = {}
+zenduty_key = os.environ.get('zenduty_key')
+slack_auth_token = os.environ.get('slack_auth_token')
 
-with open('.env', 'r') as f:
-    config = json.load(f)
-    required_keys = set(['zenduty_key', 'slack_auth_token'])
+required_keys = set(['zenduty_key', 'slack_auth_token'])
 
-    if not set(config.keys()).issuperset(required_keys):
-        raise ValueError('zenduty_key, slack_auth_token keys are required')
+
 
 class Slack:
 
     def __init__(self):
         self._slack_base_url = 'https://slack.com/api'
-        self._headers = {'Authorization': 'Bearer {}'.format(config.get('slack_auth_token'))}
+        self._headers = {'Authorization': 'Bearer {}'.format(slack_auth_token)}
         self._slack_cache_file = 'data/cache_slack_data.json'
 
     def __get_all_from_cache(self):
@@ -37,8 +34,8 @@ class Slack:
         print('---settingup---', slack_cache_data)
         slack_cache_data['usergroups'][group_name] = group_id
         print(slack_cache_data)
-        with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
-            json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
+        # with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
+        #     json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
 
     def __set_slack_id_into_cache(self, email, slack_user_id):
         print('slack_user_id', slack_user_id)
@@ -47,8 +44,8 @@ class Slack:
             slack_cache_data['users'] = {}
         slack_cache_data['users'][email] = slack_user_id
         print(slack_cache_data)
-        with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
-            json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
+        # with open(self._slack_cache_file, 'w', encoding='utf-8') as f:
+        #     json.dump(slack_cache_data, f, ensure_ascii=False, indent=4)
 
     def __get_group_id_from_cache(self, group_name):
         return self.__get_all_from_cache().get('usergroups', {}).get(group_name, None)
@@ -128,7 +125,7 @@ class Zenduty:
     def __init__(self):
         #can be read from config
         self._zenduty_base_url = 'https://www.zenduty.com/api/account'
-        self._headers = {'Authorization':"token {}".format(config.get('zenduty_key'))}
+        self._headers = {'Authorization':"token {}".format(zenduty_key)}
         self.slack = Slack()
 
     def __oncall(self, team_id,schedule_id):
@@ -164,4 +161,11 @@ class Zenduty:
 
 s = Slack()
 z = Zenduty()
-print(z.get_oncalls())
+
+def lambda_handler(event, context):
+    print(z.get_oncalls())
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Success!')
+    }
+
