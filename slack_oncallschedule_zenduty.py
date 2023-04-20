@@ -5,6 +5,10 @@ slack_auth_token = os.environ.get('slack_auth_token')
 
 required_keys = set(['zenduty_key', 'slack_auth_token'])
 
+'''
+!!IMPORTANT!! Do not give DEFAULT name to your schedules, this script will ignore the DEFAULT 
+schedule name because Default schedule is used for admin team for which we do not want to create oncall slack group
+'''
 
 
 class Slack:
@@ -161,7 +165,7 @@ class Zenduty:
 
 s = Slack()
 z = Zenduty()
-
+z.get_oncalls()
 def lambda_handler(event, context):
     print(z.get_oncalls())
     return {
